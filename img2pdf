@@ -1,0 +1,344 @@
+#!/bin/bash
+Version=0.00
+Myname="${0##*/}"
+
+:<<'DOC'
+= img2pdf - convert one or more image files into a multipage pdf
+
+= Synopsis
+img2pdf [options] imagefile ...	
+
+== Options
+-h|--help	print this help and exit
+-H|--Help	print full documentation via less and exit
+-V|--version	print version and exit
+-a|--author	set author text for title page
+-c|--caption	if the image has a caption, display it below the image
+-D|--debug	keep temporary data for debugging; implies --verbose
+-d|--density	convert image to density INT; default: 300
+   --date	set date text for title page; default: today's date
+-f|--font	set font for title page and caption; default: DejaVuSerif
+-g|--geometry	set papersize in mm; default: 210x297 (A4)
+-m|--margin	add margins of INT mm, default: 0
+-n|--normalize	normalize images
+-o|--output	output file (.pdf appended if absent)
+-q|--quality	set conversion quality to INT percent; default: 75
+-r|--resize	resize images to ARG, where ARG is |400|, |300x300|, or |50%|.
+-t|--title	set title text for title page (no title => no front page)
+-v|--verbose	be verbose
+
+= Description
+img2pdf creates a pdf file from one or more image files (any image format
+understood by ImageMagick.) The pdf is written on standard output, unless the
+|--output| option is used. However, img2pdf refuses to write its pdf output to
+the terminal; you must redirect it to a file or a pipe. 
+
+The included images are converted to JPEG; you can influence the
+output file´s size by using the |--quality| and |--resize| options.
+The |--resize| option can have the same arguments as the |-resize|
+option of ImageMagick´s /convert/: |nnn|, |nnnxmmm|, or |kk%|, where
+|nnn| and |mmm| are at least 10, and |kk| is between 1 and 100.
+
+= Frontpage
+
+By using the |--title| option you can generate a title page; the |--author|
+option adds an author (or anything else) to that page, which will also quote
+today's date, unless you replace that with an other, maybe empty, text.  The
+sizes of these texts can be influenced by inserting LaTeX statements such as
+|\size{30}|. The style can be changed with |\bf| or |\it|. Spacing and other
+commands can also be inserted.  The font itself can be changed with the
+|--font| option. 
+
+= Image captions
+Images can contain a caption, a title, or a comment.
+You can see the caption with:
+
+  $ exiftool -caption imagefile
+
+and you can set the caption with:
+
+  $ exiftool -caption='My caption' imagefile
+
+Similarly, you can write and read with |exiftool|s |-title| and |-comment|
+options. If |img2pdf| is called with the |--caption| option, it tries to
+find a caption by looking for a title, a caption, or a comment, in that
+order and takes the first of those which is not empty.
+
+= Author
+[Wybo Dekker](wybo@dekkerdocumenten.nl)
+
+= Copyright
+Released under the [GNU General Public License](www.gnu.org/copyleft/gpl.html)
+DOC
+
+Red='\e[38;5;1m' Mag='\e[38;5;5m' Nor='\e[0m'
+    die() { local i; for i; do echo -e "$Myname: $Red$i"; done 1>&2; exit 1; }
+   Warn() { local i; for i; do echo -e "$Myname: $Mag$i$Nor"; done 1>&2; }
+   warn() { $verbose && Warn "$@"; }
+helpsrt() { sed -n '/^= Synopsis/,/^= /p' "$0"|sed '1d;$d'; exit; }
+helpall() { sed -n "/^:<<'DOC'$/,/^DOC/p" "$0"|sed '1d;$d'|
+            less -P"$Myname-${Version/./·} (press h for help, q to quit)";exit; }
+
+:<<'DOC' #---------------------------------------------------------------------
+= excheck
+synopsis:	 excheck executable1 [executable2...]
+description:	check if all needed execs are there and getopt is GNU
+DOC
+#-------------------------------------------------------------------------------
+excheck() {
+   local ok=true i
+   ((BASH_VERSINFO>=4)) || die "Need bash version >= 4"
+   for i; do 
+      command -v "$i" > /dev/null && continue
+      Warn "Missing executable: $i"
+      ok=false
+   done
+   $ok || die
+   getopt -T 
+   [[ $? -ne 4 ]] && die "Your getopt is not GNU"
+}
+
+:<<'DOC' #----------------------------------------------------------------------
+= handle_options
+synopsis:	 handle_options "$@"
+description:	handle the options.
+globals used:	 Myname Version
+globals  set:	 args author caption date debug density font geometry
+		 margin normalize out quality resize title verbose
+DOC
+#-------------------------------------------------------------------------------
+handle_options() {
+   local options x y
+   options=$(getopt \
+      -n "$Myname" \
+      -o a:cd:Df:g:HhIm:no:q:r:t:Vv \
+      -l author:,caption,date:,debug,density:,font:,geometry:,Help,help,margin:,normalize,output:,quality:,resize:,title:,version,verbose -- "$@"
+   ) || exit 1
+   eval set -- "$options"
+
+   # global defaults
+   author=''
+   caption=false
+   date=$(date +%F)
+   debug=false
+   density=300 # default for convert is 1x1, which causes a latex crash
+   font=DejavuSerif
+   geometry=210mm,297mm
+   margin=0
+   normalize=''
+   out=''
+   quality=75
+   resize=100%
+   title=''
+   verbose=false
+
+   while [ $# -gt 0 ]; do
+      case $1 in
+      (-h|--help)      # print this help and exit
+		       helpsrt
+		       ;;
+      (-H|--Help)      # print full documentation via less and exit
+		       helpall
+		       ;;
+      (-V|--version)   # print version and exit
+		       echo $Version
+		       exit
+		       ;;
+      (-a|--author)    # set author text for title page
+		       author="$2"
+		       shift 2
+		       ;;
+      (-c|--caption)   # if the image has a caption, display it below the image
+		       caption=true
+		       shift
+		       ;;
+      (-D|--debug)     # keep temporary data for debugging; implies --verbose
+		       debug=true
+		       verbose=true
+		       shift
+		       ;;
+      (-d|--density)   # convert image to density INT; default: 300
+		       density="$2"
+		       [[ $density =~ ^[0-9]+$ ]] ||
+			  die "density must be a number, not $density"
+		       shift 2
+		       ;;
+      (   --date)      # set date text for title page; default: today's date
+		       date="$2"
+		       shift 2
+		       ;;
+      (-f|--font)      # set font for title page and captions; default: DejaVuSerif
+		       font="$2"
+		       shift 2
+		       ;;
+      (-g|--geometry)  # set papersize in mm; default: 210x297 (A4)
+		       if [[ $2 =~ (^[0-9]+)x([0-9]+$) ]]; then
+			  x=${BASH_REMATCH[1]}
+			  y=${BASH_REMATCH[2]}
+			  [[ $x -gt 5700 ]] ||
+			  [[ $y -gt 5700 ]] &&
+			     die "argument for --geometry (${x}x${y}) is too large"
+			  geometry="${x}mm,${y}mm"
+		       else
+			  die "Illegal value ($2) for geometry option"
+		       fi
+		       shift 2
+		       ;;
+      (-m|--margin)    # add margins of INT mm, default: 0
+		       margin="$2"
+		       [[ $margin =~ ^[0-9]+$ ]] ||
+			  die "margin must be a number, not $margin"
+		       shift 2
+		       ;;
+      (-n|--normalize) # normalize images
+		       normalize='-normalize'
+		       shift 
+		       ;;
+      (-o|--output)    # output file (.pdf appended if absent)
+		       out="$(realpath "${2%.pdf}".pdf)"
+		       shift 2
+		       ;;
+      (-q|--quality)   # set conversion quality to INT percent; default: 75
+		       quality="$2"
+		       (( quality>=1 && quality <=100 )) ||
+			  die "argument for --quality must be between 1 and 100"
+		       shift 2
+		       ;;
+      (-r|--resize)    # resize images to ARG, where ARG is |400|, |300x300|, or |50%|.
+		       resize="$2"
+		       [[ $resize =~ ^([1-9][0-9]+)(x[1-9][0-9]+)?$ ]] ||
+		       [[ $resize =~ (^[1-9][0-9]*%$) ]] ||
+			  die "illegal argument ($resize) for --resize"
+		       shift 2
+		       ;;
+      (-t|--title)     # set title text for title page (no title => no front page)
+		       title="$2"
+		       shift 2
+		       ;;
+      (-v|--verbose)   # be verbose
+		       verbose=true
+		       shift
+		       ;;
+      (-I)             instscript "$0" ||
+			  die 'the -I option is for developers only'
+		       exit
+		       ;;
+      (--)             shift
+		       break
+		       ;;
+      (*)              break
+		       ;;
+      esac
+   done
+   args=("$@")
+}
+excheck getopt convert exiftool pdfcrop lualatex
+handle_options "$@"
+set -- "${args[@]}"
+
+(( $# > 0 )) || die "Need at least one image file"
+
+input=("$@") # remaining arguments, are the input files:
+
+if [[ -z $out ]]; then
+   test -t 1 && die "Redirect your output or use the --output option"
+elif [[ -e $out ]]; then
+  printf "%s exists; overwrite (y/N)? " "$out"
+  read -r i
+  [[ $i == y ]] || die "quitting..."
+fi
+
+# make title page only if title is set
+if [[ -n $title ]]; then
+   maketitle='\maketitle'
+   frontpage='\preventcrop'
+fi
+
+tmp=$(mktemp -d -t "$Myname.XXXXXXXXXX")
+warn "Temporary directory: $tmp"
+$debug || trap 'rm -rf $tmp' 0 #1 2 15
+
+geom="${geometry/,/\}\{}"
+skip=2 # white under caption in mm
+cat <<-EOD > "$tmp/main.tex"
+	%!lualatex
+	\\documentclass[12pt]{book}
+	\\usepackage{fontspec}
+	\\setmainfont{$font}
+	\\usepackage{graphicx,calc,xcolor}
+	\\usepackage[absolute]{textpos}
+	\\usepackage[
+	  papersize={$geometry},
+	  margin=${margin}mm,
+	  noheadfoot
+	]{geometry}
+	\\pagestyle{empty}\\parindent0pt\\parskip0pt
+	
+	\\def\\preventcrop{%
+	  \\begin{textblock}{16}[0,0](0,0)
+	    \\textcolor[rgb]{.99,.99,.99}{\\rule{$geom}}
+	  \\end{textblock}
+	}
+	
+	\\def\\IMG#1#2{\\begin{minipage}{\\hsize}
+	  \\def\\caption{#2}
+	  \\includegraphics[
+	     width=\\textwidth,
+	     height=\\textheight-\baselineskip-${skip}mm,
+	     keepaspectratio
+	  ]{#1.jpg}
+	  \\ifx\caption\\empty\\else\\\\\\hspace*{.5em}\caption\\fi
+	\\end{minipage}\\par
+	}
+	
+	\\begin{document}
+	\\thispagestyle{empty}
+	$frontpage
+	\\title{$title}
+	\\author{$author}
+	\\date{$date}
+	$maketitle
+	\\centering
+EOD
+
+n=0
+for i in "${input[@]}"; do 
+   warn "$i"
+   test -e "$i" || die "File $i does not exist"
+   test -r "$i" || die "File $i is not readable"
+   [[ $(file "$i") =~ image ]] ||
+      die "$i does not seem to contain image data"
+   ((n++))
+   eval "\
+      convert \"$i\" \
+	      $normalize \
+	      -density $density \
+	      -quality $quality \
+	      -resize $resize \
+	      $tmp/$n.jpg
+	 "
+         $caption && cmt=$(exiftool -s3 -title -caption -comment "$i" | head -1)
+   echo "\\IMG{$n}{$cmt}" >>"$tmp/main.tex"
+done
+echo '\end{document}' >>"$tmp/main.tex"
+
+warn 'compiling'
+cd "$tmp" || die "Could not cd to $tmp"
+echo x |lualatex main.tex &>/dev/null ||
+   die "Errors running lualatex; inspect $tmp"
+
+(( m=margin*2835/1000 ))	# margin in pts
+(( b=m ))			# bottom margin in pts if no caption
+(( s=skip*2835/1000 ))		# white under caption in pts
+if $caption; then
+   if (( m<s )); then
+      b=$s
+   fi
+fi
+a=(--margins "$m $m $m $b" "$tmp/main.pdf" "$tmp/main.pdf")
+pdfcrop "${a[@]}" > /dev/null || die 'Error running pdfcrop'
+if [[ -n $out ]]; then
+   mv -f "$tmp/main.pdf" "$out"
+else
+   cat "$tmp/main.pdf"
+fi
