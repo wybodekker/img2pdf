@@ -309,7 +309,7 @@ for i in "${input[@]}"; do
    [[ $(file "$i") =~ image ]] ||
       die "$i does not seem to contain image data"
    ((n++))
-   eval "\
+   com="\
       convert \"$i\" \
 	      $normalize \
 	      -density $density \
@@ -317,6 +317,8 @@ for i in "${input[@]}"; do
 	      -resize $resize \
 	      $tmp/$n.jpg
 	 "
+   warn "$com"
+   eval "$com"
          $caption && cmt=$(exiftool -s3 -title -caption -comment "$i" | head -1)
    echo "\\IMG{$n}{$cmt}" >>"$tmp/main.tex"
 done
