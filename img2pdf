@@ -1,5 +1,5 @@
 #!/bin/bash
-Version=0.00
+Version=0.01
 Myname="${0##*/}"
 
 :<<'DOC'
@@ -9,23 +9,23 @@ Myname="${0##*/}"
 img2pdf [options] imagefile ...	
 
 == Options
--h|--help	print this help and exit
--H|--Help	print full documentation via less and exit
--V|--version	print version and exit
--a|--author	set author text for title page
--c|--caption	if the image has a caption, display it below the image
--D|--debug	keep temporary data for debugging; implies --verbose
--d|--density	convert image to density INT; default: 300
-   --date	set date text for title page; default: today's date
--f|--font	set font for title page and caption; default: DejaVuSerif
--g|--geometry	set papersize in mm; default: 210x297 (A4)
--m|--margin	add margins of INT mm, default: 0
--n|--normalize	normalize images
--o|--output	output file (.pdf appended if absent)
--q|--quality	set conversion quality to INT percent; default: 75
--r|--resize	resize images to ARG, where ARG is |400|, |300x300|, or |50%|.
--t|--title	set title text for title page (no title => no front page)
--v|--verbose	be verbose
+-h,--help	print this help and exit
+-H,--Help	print full documentation via less and exit
+-V,--version	print version and exit
+-a,--author	set author text for title page
+-c,--caption	if the image has a caption, display it below the image
+-D,--debug	keep temporary data for debugging; implies --verbose
+   --date=X	set date text for title page to X; default: today's date
+-f,--font=X	set font for title page and captions to X; default: DejaVuSerif
+-g,--geometry=X	set papersize in mm to X; default: X=210x297 (A4)
+-m,--margin=X	add margins of X mm, default: 0
+-n,--normalize	normalize images
+-o,--output=X	set output file to X (.pdf appended if absent)
+-q,--quality=X	set conversion quality to X percent; default: 75
+-r,--resize=X	resize images to X, where X is like |400|, or |50%|.
+-t,--title=X	set title text for title page to X.
+		(no title => no front page)
+-v,--verbose	be verbose
 
 = Description
 img2pdf creates a pdf file from one or more image files (any image format
@@ -33,11 +33,12 @@ understood by ImageMagick.) The pdf is written on standard output, unless the
 |--output| option is used. However, img2pdf refuses to write its pdf output to
 the terminal; you must redirect it to a file or a pipe. 
 
-The included images are converted to JPEG; you can influence the
-output file´s size by using the |--quality| and |--resize| options.
-The |--resize| option can have the same arguments as the |-resize|
-option of ImageMagick´s /convert/: |nnn|, |nnnxmmm|, or |kk%|, where
-|nnn| and |mmm| are at least 10, and |kk| is between 1 and 100.
+The included images are converted to JPEG; you can influence the output
+file´s size by using the |--quality| and |--resize| options. The argument
+of the |--resize| option can be an integer, indicating the number of
+horizontal pixels, or an integer followed by a % sign, telling how much the
+number of pixels is to be reduced, or increased. The aspect ratio is
+always conserved.
 
 = Frontpage
 
@@ -103,7 +104,7 @@ excheck() {
 synopsis:	 handle_options "$@"
 description:	handle the options.
 globals used:	 Myname Version
-globals  set:	 args author caption date debug density font geometry
+globals  set:	 args author caption date debug font geometry
 		 margin normalize out quality resize title verbose
 DOC
 #-------------------------------------------------------------------------------
@@ -111,8 +112,8 @@ handle_options() {
    local options x y
    options=$(getopt \
       -n "$Myname" \
-      -o a:cd:Df:g:HhIm:no:q:r:t:Vv \
-      -l author:,caption,date:,debug,density:,font:,geometry:,Help,help,margin:,normalize,output:,quality:,resize:,title:,version,verbose -- "$@"
+      -o a:c:Df:g:HhIm:no:q:r:t:Vv \
+      -l author:,caption,date:,debug:,font:,geometry:,Help,help,margin:,normalize,output:,quality:,resize:,title:,version,verbose -- "$@"
    ) || exit 1
    eval set -- "$options"
 
@@ -121,7 +122,6 @@ handle_options() {
    caption=false
    date=$(date +%F)
    debug=false
-   density=300 # default for convert is 1x1, which causes a latex crash
    font=DejavuSerif
    geometry=210mm,297mm
    margin=0
@@ -157,21 +157,15 @@ handle_options() {
 		       verbose=true
 		       shift
 		       ;;
-      (-d|--density)   # convert image to density INT; default: 300
-		       density="$2"
-		       [[ $density =~ ^[0-9]+$ ]] ||
-			  die "density must be a number, not $density"
-		       shift 2
-		       ;;
-      (   --date)      # set date text for title page; default: today's date
+      (   --date)      # set date text for title page to X; default: today's date
 		       date="$2"
 		       shift 2
 		       ;;
-      (-f|--font)      # set font for title page and captions; default: DejaVuSerif
+      (-f|--font)      # set font for title page and captions to X; default: DejaVuSerif
 		       font="$2"
 		       shift 2
 		       ;;
-      (-g|--geometry)  # set papersize in mm; default: 210x297 (A4)
+      (-g|--geometry)  # set papersize in mm to X; default: X=210x297 (A4)
 		       if [[ $2 =~ (^[0-9]+)x([0-9]+$) ]]; then
 			  x=${BASH_REMATCH[1]}
 			  y=${BASH_REMATCH[2]}
@@ -184,7 +178,7 @@ handle_options() {
 		       fi
 		       shift 2
 		       ;;
-      (-m|--margin)    # add margins of INT mm, default: 0
+      (-m|--margin)    # add margins of X mm, default: 0
 		       margin="$2"
 		       [[ $margin =~ ^[0-9]+$ ]] ||
 			  die "margin must be a number, not $margin"
@@ -194,24 +188,24 @@ handle_options() {
 		       normalize='-normalize'
 		       shift 
 		       ;;
-      (-o|--output)    # output file (.pdf appended if absent)
+      (-o|--output)    # set output file to X (.pdf appended if absent)
 		       out="$(realpath "${2%.pdf}".pdf)"
 		       shift 2
 		       ;;
-      (-q|--quality)   # set conversion quality to INT percent; default: 75
+      (-q|--quality)   # set conversion quality to X percent; default: 75
 		       quality="$2"
 		       (( quality>=1 && quality <=100 )) ||
 			  die "argument for --quality must be between 1 and 100"
 		       shift 2
 		       ;;
-      (-r|--resize)    # resize images to ARG, where ARG is |400|, |300x300|, or |50%|.
+      (-r|--resize)    # resize images to X, where X is like |400|, or |50%|.
 		       resize="$2"
-		       [[ $resize =~ ^([1-9][0-9]+)(x[1-9][0-9]+)?$ ]] ||
-		       [[ $resize =~ (^[1-9][0-9]*%$) ]] ||
+		       [[ $resize =~ ^[1-9]+%? ]] ||
 			  die "illegal argument ($resize) for --resize"
 		       shift 2
 		       ;;
-      (-t|--title)     # set title text for title page (no title => no front page)
+      (-t|--title)     # set title text for title page to X.
+		       # (no title => no front page)
 		       title="$2"
 		       shift 2
 		       ;;
@@ -312,7 +306,6 @@ for i in "${input[@]}"; do
    com="\
       convert \"$i\" \
 	      $normalize \
-	      -density $density \
 	      -quality $quality \
 	      -resize $resize \
 	      $tmp/$n.jpg
